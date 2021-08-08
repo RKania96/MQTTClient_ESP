@@ -9,31 +9,32 @@
 #include "UART_RingBuffer.h"
 #include <string.h>
 
-/**** define the UART you are using  ****/
+#define E_OK	1
+#define E_ERROR 0
+#define E_NOK   -1
+
+//#define INCREMENT_TAIL(x) ((unsigned int)(x->tail + 1) % UART_BUFFER_SIZE)
+
+/* definition of used UART  */
 
 UART_HandleTypeDef huart1;
-
 #define UART huart1
 
-/* put the following in the ISR 
+/* Initialization of RS and TX buffers  */
 
-extern void Uart_isr (UART_HandleTypeDef *huart);
+ring_buffer RX_Buffer = { { 0 }, 0, 0};
+ring_buffer TX_Buffer = { { 0 }, 0, 0};
 
-*/
+ring_buffer *pRX_Buffer;
+ring_buffer *pTX_Buffer;
 
-/****************=======================>>>>>>>>>>> NO CHANGES AFTER THIS =======================>>>>>>>>>>>**********************/
+/* Functions declaration  */
 
-
-ring_buffer rx_buffer = { { 0 }, 0, 0};
-ring_buffer tx_buffer = { { 0 }, 0, 0};
-
-ring_buffer *_rx_buffer;
-ring_buffer *_tx_buffer;
-
-void store_char(unsigned char c, ring_buffer *buffer);
+bool RingBuffer_PutChar(unsigned char c, ring_buffer *buffer);
 
 /**
   * USART1 Initialization Function
+  * Initialize the ring buffer
   *
 */
 void Init_RingBuffer(void)
@@ -51,171 +52,340 @@ void Init_RingBuffer(void)
 	UART.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
 	if (HAL_UART_Init(&UART) != HAL_OK)
 	{
-		Error_Handler();
+		  __disable_irq();
+		  while (1)
+		  {
+		  }
 	}
 
-	/* Initialize RX and TX buffer */
-	_rx_buffer = &rx_buffer;
-  	_tx_buffer = &tx_buffer;
+	/* Initialize pointers to RX and TX buffer */
+	pRX_Buffer = &RX_Buffer;
+	pTX_Buffer = &TX_Buffer;
 
     /* Enable the UART Data Register not empty Interrupt */
     __HAL_UART_ENABLE_IT(&UART, UART_IT_RXNE);
     __HAL_UART_ENABLE_IT(&UART, UART_IT_TXE);
 }
 
-void store_char(unsigned char c, ring_buffer *buffer)
+/**
+  * Put char to buffer
+  *
+*/
+bool RingBuffer_PutChar(unsigned char c, ring_buffer *rbuf)
 {
-  int i = (unsigned int)(buffer->head + 1) % UART_BUFFER_SIZE;
+	bool result = E_ERROR;
+	int i = (unsigned int)(rbuf->head + 1) % UART_BUFFER_SIZE;	// increment head and do modulo if is overflow
 
-  // if we should be storing the received character into the location
-  // just before the tail (meaning that the head would advance to the
-  // current location of the tail), we're about to overflow the buffer
-  // and so we don't write the character or advance the head.
-  if(i != buffer->tail) {
-    buffer->buffer[buffer->head] = c;
-    buffer->head = i;
-  }
+	if(i != rbuf->tail)
+	{
+		rbuf->buffer[rbuf->head] = c;
+		rbuf->head = i;
+
+		result =  E_OK;
+    }
+
+	return result;
 }
 
-int Look_for (char *str, char *buffertolookinto)
+/**
+  * Read data in the RX_Buffer and increment tail
+  *
+*/
+int RingBuffer_Read(void)
 {
-	int stringlength = strlen (str);
-	int bufferlength = strlen (buffertolookinto);
-	int so_far = 0;
-	int indx = 0;
-repeat:
-	while (str[so_far] != buffertolookinto[indx]) indx++;
-	if (str[so_far] == buffertolookinto[indx])
+	// no characters to read
+	if(pRX_Buffer->head == pRX_Buffer->tail)
 	{
-		while (str[so_far] == buffertolookinto[indx])
-		{
-			so_far++;
-			indx++;
-		}
+		return E_NOK;
 	}
-
 	else
 	{
-		so_far =0;
-		if (indx >= bufferlength) return -1;
-		goto repeat;
+		unsigned char c = pRX_Buffer->buffer[pRX_Buffer->tail];
+		pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
+		return c;
 	}
-
-	if (so_far == stringlength) return 1;
-	else return -1;
 }
 
-int Uart_read(void)
+/**
+  * Write data in the TX_Buffer and increment head
+  *
+*/
+bool RingBuffer_Write(int c)
 {
-  // if the head isn't ahead of the tail, we don't have any characters
-  if(_rx_buffer->head == _rx_buffer->tail)
-  {
-    return -1;
-  }
-  else
-  {
-    unsigned char c = _rx_buffer->buffer[_rx_buffer->tail];
-    _rx_buffer->tail = (unsigned int)(_rx_buffer->tail + 1) % UART_BUFFER_SIZE;
-    return c;
-  }
-}
+	bool result = E_ERROR;
 
-void Uart_write(int c)
-{
 	if (c>=0)
 	{
-		int i = (_tx_buffer->head + 1) % UART_BUFFER_SIZE;
+		int i = (pTX_Buffer->head + 1) % UART_BUFFER_SIZE;
 
 		// If the output buffer is full, there's nothing for it other than to
 		// wait for the interrupt handler to empty it a bit
 		// ???: return 0 here instead?
-		while (i == _tx_buffer->tail);
+		while (i == pTX_Buffer->tail);
 
-		_tx_buffer->buffer[_tx_buffer->head] = (uint8_t)c;
-		_tx_buffer->head = i;
+		pTX_Buffer->buffer[pTX_Buffer->head] = (uint8_t)c;
+		pTX_Buffer->head = i;
 
 		__HAL_UART_ENABLE_IT(&UART, UART_IT_TXE); // Enable UART transmission interrupt
+
+		result = E_OK;
+	}
+
+	return result;
+}
+
+/**
+  * Write string to the TX_Buffer
+  *
+*/
+
+void RingBuffer_WriteString (const char *s)
+{
+	while(*s) RingBuffer_Write(*s++);
+}
+
+/**
+  * Checks if the data is available to read in the RX_Buffer
+  *
+*/
+int RingBuffer_isDataToRead(void)
+{
+	return (uint16_t)(UART_BUFFER_SIZE + pRX_Buffer->head - pRX_Buffer->tail) % UART_BUFFER_SIZE;
+}
+
+/**
+  * Clear entire ring buffer, new data will start from position 0
+  *
+*/
+void RingBuffer_Clear (void)
+{
+	memset(pRX_Buffer->buffer,'\0', UART_BUFFER_SIZE);
+	pRX_Buffer->head = 0;
+}
+
+/**
+  * See content in RX_Buffer -> it is read function without incrementing tail
+  *
+*/
+int RingBuffer_SeeContent()
+{
+	if(pRX_Buffer->head == pRX_Buffer->tail)
+	{
+		return E_NOK;
+	}
+	else
+	{
+		return pRX_Buffer->buffer[pRX_Buffer->tail];
 	}
 }
 
-int IsDataAvailable(void)
+/**
+  * Wait for given response
+  *
+*/
+int RingBuffer_WaitForGivenResponse (char *str)
 {
-  return (uint16_t)(UART_BUFFER_SIZE + _rx_buffer->head - _rx_buffer->tail) % UART_BUFFER_SIZE;
+	int str_idx = 0;
+	int len = strlen(str);
+	int result = E_NOK;
+
+again:
+	while(!RingBuffer_isDataToRead())
+	{
+		//wait for incoming data
+	}
+
+	while(RingBuffer_SeeContent() != str[str_idx])
+	{
+		pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
+	}
+
+	while(RingBuffer_SeeContent() == str [str_idx])
+	{
+		str_idx++;
+		RingBuffer_Read();
+		if (str_idx == len) return 1;
+		while (!RingBuffer_isDataToRead()); // wait for incoming data
+	}
+
+	if (str_idx != len)
+	{
+		str_idx = 0;
+		goto again; //RingBuffer_WaitForGivenResponse(str); // recursive search
+	}
+
+	if (str_idx == len) { result = E_OK; }
+
+	return result;
 }
 
-void Uart_sendstring (const char *s)
+/**
+  * Find string in Ring Buffer
+  *
+*/
+int RingBuffer_FindString (char *str, char *rbuf)
 {
-	while(*s) Uart_write(*s++);
+	int str_idx = 0;
+	int rbuf_idx = 0;
+	int result = E_NOK;
+
+repeat:
+	while (str[str_idx] != rbuf[rbuf_idx]) { rbuf_idx++; }
+
+	if (str[str_idx] == rbuf[rbuf_idx])
+	{
+		while (str[str_idx] == rbuf[rbuf_idx])
+		{
+			str_idx++;
+			rbuf_idx++;
+		}
+	}
+	else
+	{
+		str_idx = 0;
+		if (rbuf_idx >= strlen(rbuf)) return result;
+		goto repeat;
+	}
+
+	if (str_idx == strlen(str)) { result = E_OK; }
+
+	return result;
 }
 
-void Uart_printbase (long n, uint8_t base)
+/**
+  * ISR for the UART
+  *
+*/
+void UART_IRQHandler ()
 {
-  char buf[8 * sizeof(long) + 1]; // Assumes 8-bit chars plus zero byte.
-  char *s = &buf[sizeof(buf) - 1];
+	uint32_t tmp_flag 	   = __HAL_UART_GET_FLAG(&UART, UART_FLAG_RXNE);
+	uint32_t tmp_it_source = __HAL_UART_GET_IT_SOURCE(&UART, UART_IT_RXNE);
 
-  *s = '\0';
+	if((tmp_flag != RESET) && (tmp_it_source != RESET))
+	{
+		unsigned char c = (USART1->RDR & (uint16_t)0x00FF);
+		RingBuffer_PutChar (c, pRX_Buffer);
 
-  // prevent crash if called with base == 1
-  if (base < 2) base = 10;
+		__HAL_UART_CLEAR_PEFLAG(&UART);
 
-  do {
-    unsigned long m = n;
-    n /= base;
-    char c = m - base * n;
-    *--s = c < 10 ? c + '0' : c + 'A' - 10;
-  } while(n);
+		return;
+	}
 
-  while(*s) Uart_write(*s++);
+	if((__HAL_UART_GET_FLAG(&UART, UART_FLAG_TXE) != RESET) && (__HAL_UART_GET_IT_SOURCE(&UART, UART_IT_TXE) != RESET))
+	{
+		if(TX_Buffer.head == TX_Buffer.tail)
+		{
+			__HAL_UART_DISABLE_IT(&UART, UART_IT_TXE);
+		}
+		else
+		{
+			unsigned char c = TX_Buffer.buffer[TX_Buffer.tail];
+	    	TX_Buffer.tail = (TX_Buffer.tail + 1) % UART_BUFFER_SIZE;
+			USART1->TDR = c;
+		}
+
+		return;
+	}
+
+	HAL_UART_IRQHandler(&UART);
 }
+
+
+int Copy_upto (char *string, char *buffertocopyinto)
+{
+	int str_idx = 0;
+	int len = strlen(string);
+	int idx = 0;
+
+again:
+	while (!RingBuffer_isDataToRead());
+	while (RingBuffer_SeeContent() != string[str_idx])
+		{
+			buffertocopyinto[idx] = pRX_Buffer->buffer[pRX_Buffer->tail];
+			pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
+			idx++;
+			while (!RingBuffer_isDataToRead());
+
+		}
+	while (RingBuffer_SeeContent() == string [str_idx])
+	{
+		str_idx++;
+		buffertocopyinto[idx++] = RingBuffer_Read();
+		if (str_idx == len) return 1;
+		while (!RingBuffer_isDataToRead());
+	}
+
+	if (str_idx != len)
+	{
+		str_idx = 0;
+		goto again;
+	}
+
+	if (str_idx == len) return 1;
+	else return -1;
+}
+
+int Get_after (char *string, uint8_t numberofchars, char *buffertosave)
+{
+
+	while (RingBuffer_WaitForGivenResponse(string) != 1);
+	for (int indx=0; indx<numberofchars; indx++)
+	{
+		while (!(RingBuffer_isDataToRead()));
+		buffertosave[indx] = RingBuffer_Read();
+	}
+	return 1;
+}
+
 
 void GetDataFromBuffer (char *startString, char *endString, char *buffertocopyfrom, char *buffertocopyinto)
 {
 	int startStringLength = strlen (startString);
 	int endStringLength   = strlen (endString);
-	int so_far = 0;
+	int str_idx = 0;
 	int indx = 0;
 	int startposition = 0;
 	int endposition = 0;
 
 repeat1:
-	while (startString[so_far] != buffertocopyfrom[indx]) indx++;
-	if (startString[so_far] == buffertocopyfrom[indx])
+	while (startString[str_idx] != buffertocopyfrom[indx]) indx++;
+	if (startString[str_idx] == buffertocopyfrom[indx])
 	{
-		while (startString[so_far] == buffertocopyfrom[indx])
+		while (startString[str_idx] == buffertocopyfrom[indx])
 		{
-			so_far++;
+			str_idx++;
 			indx++;
 		}
 	}
 
-	if (so_far == startStringLength) startposition = indx;
+	if (str_idx == startStringLength) startposition = indx;
 	else
 	{
-		so_far =0;
+		str_idx =0;
 		goto repeat1;
 	}
 
-	so_far = 0;
+	str_idx = 0;
 
 repeat2:
-	while (endString[so_far] != buffertocopyfrom[indx]) indx++;
-	if (endString[so_far] == buffertocopyfrom[indx])
+	while (endString[str_idx] != buffertocopyfrom[indx]) indx++;
+	if (endString[str_idx] == buffertocopyfrom[indx])
 	{
-		while (endString[so_far] == buffertocopyfrom[indx])
+		while (endString[str_idx] == buffertocopyfrom[indx])
 		{
-			so_far++;
+			str_idx++;
 			indx++;
 		}
 	}
 
-	if (so_far == endStringLength) endposition = indx-endStringLength;
+	if (str_idx == endStringLength) endposition = indx-endStringLength;
 	else
 	{
-		so_far =0;
+		str_idx =0;
 		goto repeat2;
 	}
 
-	so_far = 0;
+	str_idx = 0;
 	indx=0;
 
 	for (int i=startposition; i<endposition; i++)
@@ -223,132 +393,4 @@ repeat2:
 		buffertocopyinto[indx] = buffertocopyfrom[i];
 		indx++;
 	}
-}
-
-void Uart_flush (void)
-{
-	memset(_rx_buffer->buffer,'\0', UART_BUFFER_SIZE);
-	_rx_buffer->head = 0;
-}
-
-int Uart_peek()
-{
-  if(_rx_buffer->head == _rx_buffer->tail)
-  {
-    return -1;
-  }
-  else
-  {
-    return _rx_buffer->buffer[_rx_buffer->tail];
-  }
-}
-
-
-int Copy_upto (char *string, char *buffertocopyinto)
-{
-	int so_far =0;
-	int len = strlen (string);
-	int indx = 0;
-
-again:
-	while (!IsDataAvailable());
-	while (Uart_peek() != string[so_far])
-		{
-			buffertocopyinto[indx] = _rx_buffer->buffer[_rx_buffer->tail];
-			_rx_buffer->tail = (unsigned int)(_rx_buffer->tail + 1) % UART_BUFFER_SIZE;
-			indx++;
-			while (!IsDataAvailable());
-
-		}
-	while (Uart_peek() == string [so_far])
-	{
-		so_far++;
-		buffertocopyinto[indx++] = Uart_read();
-		if (so_far == len) return 1;
-		while (!IsDataAvailable());
-	}
-
-	if (so_far != len)
-	{
-		so_far = 0;
-		goto again;
-	}
-
-	if (so_far == len) return 1;
-	else return -1;
-}
-
-int Get_after (char *string, uint8_t numberofchars, char *buffertosave)
-{
-
-	while (Wait_for(string) != 1);
-	for (int indx=0; indx<numberofchars; indx++)
-	{
-		while (!(IsDataAvailable()));
-		buffertosave[indx] = Uart_read();
-	}
-	return 1;
-}
-
-
-int Wait_for (char *string)
-{
-	int so_far =0;
-	int len = strlen (string);
-
-again:
-	while (!IsDataAvailable());
-	while (Uart_peek() != string[so_far]) _rx_buffer->tail = (unsigned int)(_rx_buffer->tail + 1) % UART_BUFFER_SIZE;
-	while (Uart_peek() == string [so_far])
-	{
-		so_far++;
-		Uart_read();
-		if (so_far == len) return 1;
-		while (!IsDataAvailable());
-	}
-
-	if (so_far != len)
-	{
-		so_far = 0;
-		goto again;
-	}
-
-	if (so_far == len) return 1;
-	else return -1;
-}
-
-
-
-
-void UART_IRQHandler (UART_HandleTypeDef *huart)
-{
-	uint32_t tmp_flag = __HAL_UART_GET_FLAG(huart, UART_FLAG_RXNE);
-	uint32_t tmp_it_source = __HAL_UART_GET_IT_SOURCE(huart, UART_IT_RXNE);
-
-	if((tmp_flag != RESET) && (tmp_it_source != RESET))
-	{
-		unsigned char c = (USART1->RDR & (uint16_t)0x00FF);
-		store_char (c, _rx_buffer);
-
-		__HAL_UART_CLEAR_PEFLAG(huart);
-		return;
-	}
-
-	if((__HAL_UART_GET_FLAG(huart, UART_FLAG_TXE) != RESET) &&(__HAL_UART_GET_IT_SOURCE(huart, UART_IT_TXE) != RESET))
-	{
-		if(tx_buffer.head == tx_buffer.tail)
-		{
-			__HAL_UART_DISABLE_IT(huart, UART_IT_TXE);
-		}
-		else
-		{
-			unsigned char c = tx_buffer.buffer[tx_buffer.tail];
-	    	tx_buffer.tail = (tx_buffer.tail + 1) % UART_BUFFER_SIZE;
-			USART1->TDR = c;
-		}
-
-		return ;
-	}
-
-	HAL_UART_IRQHandler(huart);
 }

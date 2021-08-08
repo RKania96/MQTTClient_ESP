@@ -6,19 +6,13 @@
  *
  */
 
-
 #include "UART_RingBuffer.h"
 #include "ESP.h"
+#include "WiFi_Credentials.h"
 #include "stdio.h"
 #include "string.h"
 
-extern UART_HandleTypeDef huart1;
-
-#define wifi_uart &huart1
-#define pc_uart &huart2
-
-
-char buffer[20];
+char ip_addr[15];
 
 
 char *Basic_inclusion = "<!DOCTYPE html> <html>\n<head><meta name=\"viewport\"\
@@ -40,73 +34,50 @@ char *LED_OFF = "<p>LED1 Status: OFF</p><a class=\"button button-on\" href=\"/le
 char *Terminate = "</body></html>";
 
 
-
-/*****************************************************************************************************************************************/
-
-void ESP_Init (char *SSID, char *PASSWD)
+/**
+  * ESP init function
+  *
+*/
+void ESP_Init()
 {
 	char data[80];
 
 	Init_RingBuffer();
+	RingBuffer_WriteString("AT+RST\r\n");
 
-	Uart_sendstring("AT+RST\r\n");
-	//Uart_sendstring("RESETTING.", pc_uart);
 	for (int i=0; i<5; i++)
 	{
-		//Uart_sendstring(".", pc_uart);
-		HAL_Delay(1000);
-	}
-	for (int i=0; i<5; i++)
-	{
-		//Uart_sendstring(".", pc_uart);
 		HAL_Delay(1000);
 	}
 
 	/********* AT **********/
-	Uart_sendstring("AT\r\n");
-	while(!(Wait_for("AT\r\r\n\r\nOK\r\n")));
-	//Uart_sendstring("AT---->OK\n\n", pc_uart);
-
+	RingBuffer_WriteString("AT\r\n");
+	while(!(RingBuffer_WaitForGivenResponse("AT\r\r\n\r\nOK\r\n")));
 
 	/********* AT+CWMODE=1 **********/
-	Uart_sendstring("AT+CWMODE=1\r\n");
-	while (!(Wait_for("AT+CWMODE=1\r\r\n\r\nOK\r\n")));
-	//Uart_sendstring("CW MODE---->1\n\n", pc_uart);
-
+	RingBuffer_WriteString("AT+CWMODE=1\r\n");
+	while (!(RingBuffer_WaitForGivenResponse("AT+CWMODE=1\r\r\n\r\nOK\r\n")));
 
 	/********* AT+CWJAP="SSID","PASSWD" **********/
-	//Uart_sendstring("connecting... to the provided AP\n", pc_uart);
-	sprintf (data, "AT+CWJAP=\"%s\",\"%s\"\r\n", SSID, PASSWD);
-	Uart_sendstring(data);
-	while (!(Wait_for("WIFI GOT IP\r\n\r\nOK\r\n")));
-	sprintf (data, "Connected to,\"%s\"\n\n", SSID);
-	//Uart_sendstring(data,pc_uart);
-
+	sprintf (data, "AT+CWJAP=\"%s\",\"%s\"\r\n", WIFI_SSID, WIFI_PASS);
+	RingBuffer_WriteString(data);
+	while (!(RingBuffer_WaitForGivenResponse("WIFI GOT IP\r\n\r\nOK\r\n")));
 
 	/********* AT+CIFSR **********/
-	Uart_sendstring("AT+CIFSR\r\n");
-	while (!(Wait_for("CIFSR:STAIP,\"")));
-	while (!(Copy_upto("\"",buffer)));
-	while (!(Wait_for("OK\r\n")));
-	int len = strlen (buffer);
-	buffer[len-1] = '\0';
-	sprintf (data, "IP ADDR: %s\n\n", buffer);
-	//Uart_sendstring(data, pc_uart);
+	RingBuffer_WriteString("AT+CIFSR\r\n");
+	while (!(RingBuffer_WaitForGivenResponse("CIFSR:STAIP,\"")));
+	while (!(Copy_upto("\"",ip_addr)));
+	while (!(RingBuffer_WaitForGivenResponse("OK\r\n")));
 
-
-	Uart_sendstring("AT+CIPMUX=1\r\n");
-	while (!(Wait_for("AT+CIPMUX=1\r\r\n\r\nOK\r\n")));
+	/********* AT+CIPMUX=1 **********/
+	RingBuffer_WriteString("AT+CIPMUX=1\r\n");
+	while (!(RingBuffer_WaitForGivenResponse("AT+CIPMUX=1\r\r\n\r\nOK\r\n")));
 	//Uart_sendstring("CIPMUX---->OK\n\n", pc_uart);
 
-	Uart_sendstring("AT+CIPSERVER=1,80\r\n");
-	while (!(Wait_for("OK\r\n")));
-	//Uart_sendstring("CIPSERVER---->OK\n\n", pc_uart);
-
-	//Uart_sendstring("Now Connect to the IP ADRESS\n\n", pc_uart);
-
+	/********* AT+CIPSERVER=1,80 **********/
+	RingBuffer_WriteString("AT+CIPSERVER=1,80\r\n");
+	while (!(RingBuffer_WaitForGivenResponse("OK\r\n")));
 }
-
-
 
 
 int Server_Send (char *str, int Link_ID)
@@ -114,13 +85,13 @@ int Server_Send (char *str, int Link_ID)
 	int len = strlen (str);
 	char data[80];
 	sprintf (data, "AT+CIPSEND=%d,%d\r\n", Link_ID, len);
-	Uart_sendstring(data);
-	while (!(Wait_for(">")));
-	Uart_sendstring (str);
-	while (!(Wait_for("SEND OK")));
+	RingBuffer_WriteString(data);
+	while (!(RingBuffer_WaitForGivenResponse(">")));
+	RingBuffer_WriteString (str);
+	while (!(RingBuffer_WaitForGivenResponse("SEND OK")));
 	sprintf (data, "AT+CIPCLOSE=5\r\n");
-	Uart_sendstring(data);
-	while (!(Wait_for("OK\r\n")));
+	RingBuffer_WriteString(data);
+	while (!(RingBuffer_WaitForGivenResponse("OK\r\n")));
 	return 1;
 }
 
@@ -160,19 +131,19 @@ void Server_Start (void)
 	while (!(Get_after("+IPD,", 1, &Link_ID)));
 	Link_ID -= 48;
 	while (!(Copy_upto(" HTTP/1.1", buftocopyinto)));
-	if (Look_for("/ledon", buftocopyinto) == 1)
+	if (RingBuffer_FindString("/ledon", buftocopyinto) == 1)
 	{
 		//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
 		Server_Handle("/ledon",Link_ID);
 	}
 
-	else if (Look_for("/ledoff", buftocopyinto) == 1)
+	else if (RingBuffer_FindString("/ledoff", buftocopyinto) == 1)
 	{
 		//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
 		Server_Handle("/ledoff",Link_ID);
 	}
 
-	else if (Look_for("/favicon.ico", buftocopyinto) == 1);
+	else if (RingBuffer_FindString("/favicon.ico", buftocopyinto) == 1);
 
 	else
 	{
