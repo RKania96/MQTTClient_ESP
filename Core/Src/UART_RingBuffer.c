@@ -144,6 +144,16 @@ void RingBuffer_WriteString (const char *s)
 	while(*s) RingBuffer_Write(*s++);
 }
 
+void RingBuffer_WriteStrings(const char *s, int datalen)
+{
+	int i = 0;
+	while(i<datalen)
+	{
+		RingBuffer_Write(s[i]);
+		i++;
+	}
+}
+
 /**
   * Checks if the data is available to read in the RX_Buffer
   *
@@ -252,6 +262,27 @@ repeat:
 	return result;
 }
 
+///**
+//  * Receive data to mqtt
+//  *
+//*/
+//bool RingBuffer_Receive(char * bufferObject, uint8_t * data, uint16_t maxlen)
+//{
+//	// Get available count.
+//	uint16_t lenTotal = RingBuffer_isDataToRead();
+//
+//	// Limit the total count by client buffer size.
+//	if(lenTotal > maxlen){
+//		lenTotal = maxlen;
+//	}
+//
+//	// Actual number of bytes to read.
+//	uint16_t actualLen = lenTotal;
+//
+//
+//
+//}
+
 /**
   * ISR for the UART
   *
@@ -325,14 +356,14 @@ again:
 	else return -1;
 }
 
-int Get_after (char *string, uint8_t numberofchars, char *buffertosave)
+int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
 {
-
-	while (RingBuffer_WaitForGivenResponse(string) != 1);
+	while(RingBuffer_WaitForGivenResponse(string) != 1);
 	for (int indx=0; indx<numberofchars; indx++)
 	{
 		while (!(RingBuffer_isDataToRead()));
 		buffertosave[indx] = RingBuffer_Read();
+		*result = indx+1;
 	}
 	return 1;
 }

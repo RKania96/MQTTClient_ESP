@@ -27,12 +27,14 @@ void Init_RingBuffer(void);
 int RingBuffer_Read(void);
 bool RingBuffer_Write(int c);
 void RingBuffer_WriteString(const char *s);
+void RingBuffer_WriteStrings(const char *s, int datalen);
 int RingBuffer_isDataToRead(void);
 void RingBuffer_Clear (void);
 int RingBuffer_SeeContent();
 int RingBuffer_WaitForGivenResponse (char *string);
 
 int RingBuffer_FindString (char *str, char *rbuf);
+int RingBuffer_Receive (char *string, uint8_t numberofchars, char *buffertosave, int *result);
 void UART_IRQHandler ();
 
 

@@ -19,7 +19,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "ESP.h"
+#include "MQTTPacket.h"
+#include "transport.h"
+#include "networkwrapper.h"
+#include <stdbool.h>
+//#include "ESP.h"  //tu
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -56,6 +60,124 @@ static void MX_GPIO_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+//void GetTime_Init()
+//{
+//	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+//	DWT->CYCCNT = 0;
+//	ITM->LAR = 0xC5ACCE55;
+//	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+//}
+///*
+// * @brief Time provider for the networkwrapper..
+// * @return Time in ms.
+// */
+//long unsigned int network_gettime_ms(void) {
+//
+//	return DWT->CYCCNT;
+//}
+
+typedef struct
+{
+	int value1;
+	int value2;
+	float value3;
+}MQTTdata;
+
+// Settings.
+#define CONNECTION_KEEPALIVE_S 60UL
+
+void MQTTClient_Start()
+{
+	unsigned char mqttbuffer[128];
+	MQTTTransport transporter;
+	int result;
+	int length;
+
+	// Transport layer uses the esp8266 networkwrapper.
+	static transport_iofunctions_t iof = {network_send, network_recv};
+	int transport_socket = transport_open(&iof);
+
+	// State machine.
+	int internalState = 0;
+	while(true) {
+		switch(internalState){
+		case 0:	{
+	        //Init time measure
+			//GetTime_Init();
+
+			// Populate the transporter.
+			transporter.sck = &transport_socket;
+			transporter.getfn = transport_getdatanb;
+			transporter.state = 0;
+
+			// Populate the connect struct.
+			MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
+			connectData.MQTTVersion = 3;
+			connectData.clientID.cstring = "DeviceNo1";
+			connectData.keepAliveInterval = CONNECTION_KEEPALIVE_S;
+			connectData.username.cstring = "user1";
+			connectData.password.cstring = "password";
+			length = MQTTSerialize_connect(mqttbuffer, sizeof(mqttbuffer), &connectData);
+
+			// Send CONNECT to the mqtt broker.
+			if((result = transport_sendPacketBuffer(transport_socket, mqttbuffer, length)) == length){
+				// To the next state.
+				internalState++;
+			} else {
+				// Start over.
+				internalState = 0;
+			}
+		} break;
+		case 3:	{
+			// Wait for CONNACK response from the mqtt broker.
+			while(true) {
+				// Wait until the transfer is done.
+				if((result = MQTTPacket_readnb(mqttbuffer, sizeof(mqttbuffer), &transporter)) == CONNACK){
+					// Check if the connection was accepted.
+					unsigned char sessionPresent, connack_rc;
+					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttbuffer, sizeof(mqttbuffer)) != 1) || (connack_rc != 0)){
+						// Start over.
+						internalState = 0;
+						break;
+					}else{
+						// To the next state.
+						internalState++;
+						break;
+					}
+				} else if (result == -1) {
+					// Start over.
+					internalState = 0;
+					break;
+				}
+			}
+		} break;
+		case 1:	{
+			// Populate the publish message.
+			MQTTString topicString = MQTTString_initializer;
+			topicString.cstring = "temperature/value";
+			unsigned char payload[16];
+
+			MQTTdata mqttData;
+			mqttData.value1 = 123;
+
+			length = MQTTSerialize_publish(mqttbuffer, sizeof(mqttbuffer), 0, 0, 0, 0, topicString, payload, (length = sprintf(payload, "%d", mqttData.value1)));
+
+			// Send PUBLISH to the mqtt broker.
+			if((result = transport_sendPacketBuffer(transport_socket, mqttbuffer, length)) == length){
+
+				// Wait 5s.
+				HAL_Delay(5000);
+			} else {
+				// Start over.
+				internalState = 0;
+			}
+		} break;
+		default:
+			internalState = 0;
+		}
+	}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -88,7 +210,7 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
 
-  ESP_Init();
+  //ESP_Init();  //tu
 
   /* USER CODE END 2 */
 
@@ -97,7 +219,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  Server_Start();
+	  //Server_Start();  //tu
+	  MQTTClient_Start();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
