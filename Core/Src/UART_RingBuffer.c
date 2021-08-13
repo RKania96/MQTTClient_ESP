@@ -16,12 +16,10 @@
 //#define INCREMENT_TAIL(x) ((unsigned int)(x->tail + 1) % UART_BUFFER_SIZE)
 
 /* definition of used UART  */
-
 UART_HandleTypeDef huart1;
 #define UART huart1
 
 /* Initialization of RS and TX buffers  */
-
 ring_buffer RX_Buffer = { { 0 }, 0, 0};
 ring_buffer TX_Buffer = { { 0 }, 0, 0};
 
@@ -138,16 +136,19 @@ bool RingBuffer_Write(int c)
   * Write string to the TX_Buffer
   *
 */
-
 void RingBuffer_WriteString (const char *s)
 {
 	while(*s) RingBuffer_Write(*s++);
 }
 
-void RingBuffer_WriteStrings(const char *s, int datalen)
+/**
+  * Write string to the TX_Buffer with given length
+  *
+*/
+void RingBuffer_WriteLenghtString(const unsigned char *s, int dataLength)
 {
 	int i = 0;
-	while(i<datalen)
+	while(i < dataLength)
 	{
 		RingBuffer_Write(s[i]);
 		i++;
@@ -230,58 +231,20 @@ again:
 }
 
 /**
-  * Find string in Ring Buffer
+  * ISR for the UART
   *
 */
-int RingBuffer_FindString (char *str, char *rbuf)
+int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
 {
-	int str_idx = 0;
-	int rbuf_idx = 0;
-	int result = E_NOK;
-
-repeat:
-	while (str[str_idx] != rbuf[rbuf_idx]) { rbuf_idx++; }
-
-	if (str[str_idx] == rbuf[rbuf_idx])
+	while(RingBuffer_WaitForGivenResponse(string) != 1); // tu bym dał w normalnej postaci w ESP.c (wyżej, żeby timeout sprawdzać)
+	for (int indx=0; indx<numberofchars; indx++)	// to wszystko to chujnia bo tu zawsze po +IPD, jest tylko 4:
 	{
-		while (str[str_idx] == rbuf[rbuf_idx])
-		{
-			str_idx++;
-			rbuf_idx++;
-		}
+		while (!(RingBuffer_isDataToRead()));
+		buffertosave[indx] = RingBuffer_Read();
+		*result = indx+1;
 	}
-	else
-	{
-		str_idx = 0;
-		if (rbuf_idx >= strlen(rbuf)) return result;
-		goto repeat;
-	}
-
-	if (str_idx == strlen(str)) { result = E_OK; }
-
-	return result;
+	return true;
 }
-
-///**
-//  * Receive data to mqtt
-//  *
-//*/
-//bool RingBuffer_Receive(char * bufferObject, uint8_t * data, uint16_t maxlen)
-//{
-//	// Get available count.
-//	uint16_t lenTotal = RingBuffer_isDataToRead();
-//
-//	// Limit the total count by client buffer size.
-//	if(lenTotal > maxlen){
-//		lenTotal = maxlen;
-//	}
-//
-//	// Actual number of bytes to read.
-//	uint16_t actualLen = lenTotal;
-//
-//
-//
-//}
 
 /**
   * ISR for the UART
@@ -319,109 +282,4 @@ void UART_IRQHandler ()
 	}
 
 	HAL_UART_IRQHandler(&UART);
-}
-
-
-int Copy_upto (char *string, char *buffertocopyinto)
-{
-	int str_idx = 0;
-	int len = strlen(string);
-	int idx = 0;
-
-again:
-	while (!RingBuffer_isDataToRead());
-	while (RingBuffer_SeeContent() != string[str_idx])
-		{
-			buffertocopyinto[idx] = pRX_Buffer->buffer[pRX_Buffer->tail];
-			pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
-			idx++;
-			while (!RingBuffer_isDataToRead());
-
-		}
-	while (RingBuffer_SeeContent() == string [str_idx])
-	{
-		str_idx++;
-		buffertocopyinto[idx++] = RingBuffer_Read();
-		if (str_idx == len) return 1;
-		while (!RingBuffer_isDataToRead());
-	}
-
-	if (str_idx != len)
-	{
-		str_idx = 0;
-		goto again;
-	}
-
-	if (str_idx == len) return 1;
-	else return -1;
-}
-
-int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
-{
-	while(RingBuffer_WaitForGivenResponse(string) != 1);
-	for (int indx=0; indx<numberofchars; indx++)
-	{
-		while (!(RingBuffer_isDataToRead()));
-		buffertosave[indx] = RingBuffer_Read();
-		*result = indx+1;
-	}
-	return 1;
-}
-
-
-void GetDataFromBuffer (char *startString, char *endString, char *buffertocopyfrom, char *buffertocopyinto)
-{
-	int startStringLength = strlen (startString);
-	int endStringLength   = strlen (endString);
-	int str_idx = 0;
-	int indx = 0;
-	int startposition = 0;
-	int endposition = 0;
-
-repeat1:
-	while (startString[str_idx] != buffertocopyfrom[indx]) indx++;
-	if (startString[str_idx] == buffertocopyfrom[indx])
-	{
-		while (startString[str_idx] == buffertocopyfrom[indx])
-		{
-			str_idx++;
-			indx++;
-		}
-	}
-
-	if (str_idx == startStringLength) startposition = indx;
-	else
-	{
-		str_idx =0;
-		goto repeat1;
-	}
-
-	str_idx = 0;
-
-repeat2:
-	while (endString[str_idx] != buffertocopyfrom[indx]) indx++;
-	if (endString[str_idx] == buffertocopyfrom[indx])
-	{
-		while (endString[str_idx] == buffertocopyfrom[indx])
-		{
-			str_idx++;
-			indx++;
-		}
-	}
-
-	if (str_idx == endStringLength) endposition = indx-endStringLength;
-	else
-	{
-		str_idx =0;
-		goto repeat2;
-	}
-
-	str_idx = 0;
-	indx=0;
-
-	for (int i=startposition; i<endposition; i++)
-	{
-		buffertocopyinto[indx] = buffertocopyfrom[i];
-		indx++;
-	}
 }

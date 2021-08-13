@@ -18,12 +18,11 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+#include <NetworkWrapper.h>
 #include "main.h"
 #include "MQTTPacket.h"
 #include "transport.h"
-#include "networkwrapper.h"
 #include <stdbool.h>
-//#include "ESP.h"  //tu
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -60,22 +59,7 @@ static void MX_GPIO_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-//void GetTime_Init()
-//{
-//	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-//	DWT->CYCCNT = 0;
-//	ITM->LAR = 0xC5ACCE55;
-//	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-//}
-///*
-// * @brief Time provider for the networkwrapper..
-// * @return Time in ms.
-// */
-//long unsigned int network_gettime_ms(void) {
-//
-//	return DWT->CYCCNT;
-//}
-
+/* Data to send via MQTT */
 typedef struct
 {
 	int value1;
@@ -83,59 +67,61 @@ typedef struct
 	float value3;
 }MQTTdata;
 
-// Settings.
-#define CONNECTION_KEEPALIVE_S 60UL
+MQTTdata mqttData = { 123, 1000, 54.223 };
 
 void MQTTClient_Start()
 {
-	unsigned char mqttbuffer[128];
+	unsigned char mqttDataBuffer[128];
+	int internalState = 0;
 	MQTTTransport transporter;
 	int result;
 	int length;
 
-	// Transport layer uses the esp8266 networkwrapper.
-	static transport_iofunctions_t iof = {network_send, network_recv};
+	// Transport layer uses the esp8266 networkwrapper
+	static transport_iofunctions_t iof = {NetworkSend, NetworkRecv};
 	int transport_socket = transport_open(&iof);
 
-	// State machine.
-	int internalState = 0;
+	// State machine
 	while(true) {
 		switch(internalState){
-		case 0:	{
-	        //Init time measure
-			//GetTime_Init();
+		case 0:
+		{
 
-			// Populate the transporter.
-			transporter.sck = &transport_socket;
+			transporter.sck   = &transport_socket;
 			transporter.getfn = transport_getdatanb;
 			transporter.state = 0;
 
-			// Populate the connect struct.
 			MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
-			connectData.MQTTVersion = 3;
-			connectData.clientID.cstring = "DeviceNo1";
-			connectData.keepAliveInterval = CONNECTION_KEEPALIVE_S;
-			connectData.username.cstring = "user1";
-			connectData.password.cstring = "password";
-			length = MQTTSerialize_connect(mqttbuffer, sizeof(mqttbuffer), &connectData);
 
-			// Send CONNECT to the mqtt broker.
-			if((result = transport_sendPacketBuffer(transport_socket, mqttbuffer, length)) == length){
+			connectData.MQTTVersion 	  = 3;
+			connectData.clientID.cstring  = DEVICE_NAME;
+			connectData.keepAliveInterval = CONNECTION_KEEPALIVE_S;
+			connectData.username.cstring  = L_USER;
+			connectData.password.cstring  = L_PASSWORD;
+
+			length = MQTTSerialize_connect(mqttDataBuffer, sizeof(mqttDataBuffer), &connectData);
+
+			// Send CONNECT to the mqtt broker
+			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length)
+			{
 				// To the next state.
 				internalState++;
-			} else {
+			}
+			else
+			{
 				// Start over.
 				internalState = 0;
 			}
 		} break;
+
 		case 3:	{
-			// Wait for CONNACK response from the mqtt broker.
+			// Wait for CONNACK response from the mqtt broker
 			while(true) {
 				// Wait until the transfer is done.
-				if((result = MQTTPacket_readnb(mqttbuffer, sizeof(mqttbuffer), &transporter)) == CONNACK){
+				if((result = MQTTPacket_readnb(mqttDataBuffer, sizeof(mqttDataBuffer), &transporter)) == CONNACK){
 					// Check if the connection was accepted.
 					unsigned char sessionPresent, connack_rc;
-					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttbuffer, sizeof(mqttbuffer)) != 1) || (connack_rc != 0)){
+					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttDataBuffer, sizeof(mqttDataBuffer)) != 1) || (connack_rc != 0)){
 						// Start over.
 						internalState = 0;
 						break;
@@ -151,19 +137,17 @@ void MQTTClient_Start()
 				}
 			}
 		} break;
+
 		case 1:	{
 			// Populate the publish message.
 			MQTTString topicString = MQTTString_initializer;
-			topicString.cstring = "temperature/value";
+			topicString.cstring = TOPIC_NAME;
 			unsigned char payload[16];
 
-			MQTTdata mqttData;
-			mqttData.value1 = 123;
-
-			length = MQTTSerialize_publish(mqttbuffer, sizeof(mqttbuffer), 0, 0, 0, 0, topicString, payload, (length = sprintf(payload, "%d", mqttData.value1)));
+			length = MQTTSerialize_publish(mqttDataBuffer, sizeof(mqttDataBuffer), 0, 0, 0, 0, topicString, payload, (length = sprintf(payload, "%d", mqttData.value1)));
 
 			// Send PUBLISH to the mqtt broker.
-			if((result = transport_sendPacketBuffer(transport_socket, mqttbuffer, length)) == length){
+			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length){
 
 				// Wait 5s.
 				HAL_Delay(5000);
@@ -210,8 +194,6 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
 
-  //ESP_Init();  //tu
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -219,8 +201,9 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  //Server_Start();  //tu
+
 	  MQTTClient_Start();
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
