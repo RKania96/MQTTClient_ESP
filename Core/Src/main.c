@@ -153,8 +153,11 @@ void MQTTClient_Start()
 				HAL_Delay(5000);
 			} else {
 				// Start over.
-				internalState = 0;
+				internalState = 4;
 			}
+		} break;
+		case 4: {
+
 		} break;
 		default:
 			internalState = 0;

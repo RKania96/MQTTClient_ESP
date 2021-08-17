@@ -10,8 +10,8 @@
 #include <string.h>
 
 #define E_OK	1
-#define E_ERROR 0
-#define E_NOK   -1
+#define E_ERROR -1
+#define E_NOK   0
 
 //#define INCREMENT_TAIL(x) ((unsigned int)(x->tail + 1) % UART_BUFFER_SIZE)
 
@@ -25,6 +25,57 @@ ring_buffer TX_Buffer = { { 0 }, 0, 0};
 
 ring_buffer *pRX_Buffer;
 ring_buffer *pTX_Buffer;
+
+
+
+
+#define TIMEOUT_TICKS 		800000000
+
+static unsigned long int ticks_t0;
+
+/**
+  * GetTime Init function
+*/
+void GetTime_Init()
+{
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CYCCNT = 0;
+	ITM->LAR = 0xC5ACCE55;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+/**
+  * Return time in ms
+*/
+long unsigned int GetTime_ticks(void) {
+
+	return DWT->CYCCNT;
+}
+
+/**
+  * Start timer
+*/
+static void GetTime_timeoutBegin(void)
+{
+	ticks_t0 = GetTime_ticks();
+}
+
+/**
+  * Return True if timeout expired
+*/
+static bool GetTime_timeoutIsExpired()
+{
+
+	long unsigned int ticks = (GetTime_ticks() - ticks_t0);
+
+	if(TIMEOUT_TICKS < ticks)
+	{
+		return true;
+	}
+
+	return false;
+}
+
 
 /* Functions declaration  */
 
@@ -63,6 +114,8 @@ void Init_RingBuffer(void)
     /* Enable the UART Data Register not empty Interrupt */
     __HAL_UART_ENABLE_IT(&UART, UART_IT_RXNE);
     __HAL_UART_ENABLE_IT(&UART, UART_IT_TXE);
+
+	GetTime_Init();
 }
 
 /**
@@ -161,6 +214,8 @@ void RingBuffer_WriteLenghtString(const unsigned char *s, int dataLength)
 */
 int RingBuffer_isDataToRead(void)
 {
+	int rc;
+	if(rc=GetTime_timeoutIsExpired()) { return -1; }
 	return (uint16_t)(UART_BUFFER_SIZE + pRX_Buffer->head - pRX_Buffer->tail) % UART_BUFFER_SIZE;
 }
 
@@ -180,6 +235,8 @@ void RingBuffer_Clear (void)
 */
 int RingBuffer_SeeContent()
 {
+	if(GetTime_timeoutIsExpired()) { return E_ERROR; }
+
 	if(pRX_Buffer->head == pRX_Buffer->tail)
 	{
 		return E_NOK;
@@ -196,27 +253,56 @@ int RingBuffer_SeeContent()
 */
 int RingBuffer_WaitForGivenResponse (char *str)
 {
+
 	int str_idx = 0;
 	int len = strlen(str);
-	int result = E_NOK;
+	int rc;
+
+begin:
+	str_idx = 0;
+	len = strlen(str);
+
+	GetTime_timeoutBegin();
 
 again:
-	while(!RingBuffer_isDataToRead())
+	while(!(rc=RingBuffer_isDataToRead()))
 	{
 		//wait for incoming data
+		if(rc == E_ERROR) {return E_ERROR; }
 	}
 
-	while(RingBuffer_SeeContent() != str[str_idx])
+	while(1)
 	{
-		pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
+		rc = RingBuffer_SeeContent();
+
+		if(rc == E_ERROR) {return E_ERROR; }
+
+		if(rc != str[str_idx])
+		{
+			pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
+		}
+		else {break;}
 	}
 
-	while(RingBuffer_SeeContent() == str [str_idx])
+	while(1)
 	{
-		str_idx++;
-		RingBuffer_Read();
-		if (str_idx == len) return 1;
-		while (!RingBuffer_isDataToRead()); // wait for incoming data
+		rc = RingBuffer_SeeContent();
+
+		if(rc == E_ERROR) {return E_ERROR; }
+
+		if(rc == str[str_idx])
+		{
+			str_idx++;
+			RingBuffer_Read();
+			if (str_idx == len) return 1;
+			while (!(rc=RingBuffer_isDataToRead()))
+			{
+				if(rc == E_ERROR) {return E_ERROR; }// wait for incoming data
+			}
+		}
+		else {break;}
+
+
 	}
 
 	if (str_idx != len)
@@ -225,9 +311,9 @@ again:
 		goto again; //RingBuffer_WaitForGivenResponse(str); // recursive search
 	}
 
-	if (str_idx == len) { result = E_OK; }
+	if (str_idx == len) { return E_OK; }
 
-	return result;
+	goto begin;
 }
 
 /**

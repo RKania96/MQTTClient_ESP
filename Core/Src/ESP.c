@@ -29,72 +29,24 @@
 #define ESP_RESP_SEND_OK		"SEND OK"
 #define ESP_RESP_IPD			"+IPD,"
 
-#define TIMEOUT_MS 		15000
-#define ONE_CYCLE_TIME 	0.0000000125
+#define ESP_OK		1
+#define ESP_ERROR	0
 
-static unsigned long int ticks_t0;
-static uint8_t cnt = 0;
-
-/**
-  * GetTime Init function
-*/
-void GetTime_Init()
+int ESP_WaitResult(int result)
 {
-	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-	DWT->CYCCNT = 0;
-	ITM->LAR = 0xC5ACCE55;
-	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
-/**
-  * Return time in ms
-*/
-long unsigned int GetTime_ticks(void) {
-
-	return DWT->CYCCNT;
-}
-
-/**
-  * Start timer
-*/
-static void GetTime_timeoutBegin(void)
-{
-	ticks_t0 = GetTime_ticks();
-}
-
-/**
-  * Return True if timeout expired
-*/
-static bool GetTime_timeoutIsExpired(const uint16_t interval_ms)
-{
-	if(!cnt)
-	{
-		GetTime_timeoutBegin();
-		cnt++;
-	}
-
-	long unsigned int ticks = (GetTime_ticks() - ticks_t0);
-	long unsigned int time_ms = ticks * ONE_CYCLE_TIME;
-
-	if(interval_ms < time_ms)
-	{
-		cnt--;
-		return true;
-	}
-
-	return false;
+	if( result < 0 )  { return ESP_ERROR; }
+	if( result == 1 ) { return ESP_OK; }
 }
 
 /**
   * ESP init function
   *
 */
-bool ESP_Init(char *SSID, char *PASSWD)
+int ESP_Init(char *SSID, char *PASSWD)
 {
     char command[128];
 
 	Init_RingBuffer();
-	GetTime_Init();
 
 	//Reset ESP
 	RingBuffer_WriteString(ESP_SEND_AT_RESTORE);
@@ -103,29 +55,27 @@ bool ESP_Init(char *SSID, char *PASSWD)
 	HAL_Delay(5000);
 
 	RingBuffer_WriteString(ESP_SEND_AT);
-	while(!(RingBuffer_WaitForGivenResponse(ESP_RESP_AT))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_AT)))) { return ESP_ERROR; }
 
 	RingBuffer_WriteString(ESP_SEND_AT_CWMODE);
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CWMODE))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CWMODE)))) { return ESP_ERROR; }
 
 	sprintf (command, ESP_SEND_AT_CWJAP, SSID, PASSWD);
 	RingBuffer_WriteString(command);
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CWJAP))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CWJAP)))) { return ESP_ERROR; }
 
-	//HAL_Delay(1000);
-
-	return true;
+	return ESP_OK;
 }
 
-bool ESP_IsConnected(void)
+int ESP_IsConnected(void)
 {
 	RingBuffer_WriteString(ESP_SEND_AT_CIPSTATUS);
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CIPSTATUS))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CIPSTATUS)))) { return ESP_ERROR; }
 
-	return true;
+	return ESP_OK;
 }
 
-bool ESP_StartTCP(const char * host, const uint16_t port, const uint16_t keepAlive, const bool ssl)
+int ESP_StartTCP(const char * host, const uint16_t port, const uint16_t keepAlive, const uint8_t ssl)
 {
     char command[128];
 
@@ -138,12 +88,12 @@ bool ESP_StartTCP(const char * host, const uint16_t port, const uint16_t keepAli
 
 	sprintf (command, ESP_SEND_AT_CIPSTART, (ssl ? "SSL" : "TCP"), host, port, keepAlive);
 	RingBuffer_WriteString(command);
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CIPSTART))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_AT_CIPSTART)))) { return ESP_ERROR; }
 
-	return true;
+	return ESP_OK;
 }
 
-bool ESP_Send(unsigned char *data, const uint8_t dataLength)
+int ESP_Send(unsigned char *data, const uint8_t dataLength)
 {
     char command[128];
 
@@ -151,13 +101,14 @@ bool ESP_Send(unsigned char *data, const uint8_t dataLength)
 
 	sprintf(command, ESP_SEND_AT_CIPSEND, dataLength);
 	RingBuffer_WriteString(command);
-
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_ENTER_DATA))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_ENTER_DATA)))) { return ESP_ERROR; }
 
 	RingBuffer_WriteLenghtString(data,dataLength);
-	while (!(RingBuffer_WaitForGivenResponse(ESP_RESP_SEND_OK))) { if(GetTime_timeoutIsExpired( TIMEOUT_MS )) { return false; } }
 
-	return true;
+	if(!(ESP_WaitResult(RingBuffer_WaitForGivenResponse(ESP_RESP_SEND_OK)))) { return ESP_ERROR; }
+
+
+	return ESP_OK;
 }
 
 int ESP_Receive(const char * const data, const uint8_t dataLength)

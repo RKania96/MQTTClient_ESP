@@ -23,7 +23,7 @@
 //Connection settings
 #define NETWORK_HOST "192.168.0.111"
 #define NETWORK_PORT 8883
-#define NETWORK_SSL	 true
+#define NETWORK_SSL	 1
 #define CONNECTION_KEEPALIVE_S 60UL
 
 #endif /* INC_SETTINGS_H_ */
