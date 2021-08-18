@@ -15,7 +15,6 @@
 #define ESP_ERROR -1
 
 static int NetworkSendState = 0;
-static int NetworkRecvState = 0;
 
 
 int NetworkSend(unsigned char *pMqttData, unsigned int dataLength)
@@ -56,13 +55,5 @@ int NetworkSend(unsigned char *pMqttData, unsigned int dataLength)
 	return 0;
 }
 
-//int NetworkRecv(unsigned char *pMqttData, unsigned int maxBytes)
-//{
-//	bool espResult;
-//	static char receiveBuffer[128];
-//
-//	espResult = ESP_Receive(receiveBuffer, 128);
-//
-//	// Return the count.
-//	return espResult;
-//}
+//int NetworkRecv(unsigned char *pMqttData, unsigned int maxBytes) { }
+

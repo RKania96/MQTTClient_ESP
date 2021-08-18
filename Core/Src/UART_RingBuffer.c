@@ -7,6 +7,7 @@
  */
 
 #include "UART_RingBuffer.h"
+#include "GetTime.h"
 #include <string.h>
 
 #define E_OK	1
@@ -25,56 +26,6 @@ ring_buffer TX_Buffer = { { 0 }, 0, 0};
 
 ring_buffer *pRX_Buffer;
 ring_buffer *pTX_Buffer;
-
-
-
-
-#define TIMEOUT_TICKS 		800000000
-
-static unsigned long int ticks_t0;
-
-/**
-  * GetTime Init function
-*/
-void GetTime_Init()
-{
-	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-	DWT->CYCCNT = 0;
-	ITM->LAR = 0xC5ACCE55;
-	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
-/**
-  * Return time in ms
-*/
-long unsigned int GetTime_ticks(void) {
-
-	return DWT->CYCCNT;
-}
-
-/**
-  * Start timer
-*/
-static void GetTime_timeoutBegin(void)
-{
-	ticks_t0 = GetTime_ticks();
-}
-
-/**
-  * Return True if timeout expired
-*/
-static bool GetTime_timeoutIsExpired()
-{
-
-	long unsigned int ticks = (GetTime_ticks() - ticks_t0);
-
-	if(TIMEOUT_TICKS < ticks)
-	{
-		return true;
-	}
-
-	return false;
-}
 
 
 /* Functions declaration  */
