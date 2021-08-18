@@ -73,12 +73,12 @@ void MQTTClient_Start()
 {
 	unsigned char mqttDataBuffer[128];
 	int internalState = 0;
-	MQTTTransport transporter;
+//	MQTTTransport transporter;
 	int result;
 	int length;
 
 	// Transport layer uses the esp8266 networkwrapper
-	static transport_iofunctions_t iof = {NetworkSend, NetworkRecv};
+	static transport_iofunctions_t iof = {NetworkSend, NULL};
 	int transport_socket = transport_open(&iof);
 
 	// State machine
@@ -87,9 +87,9 @@ void MQTTClient_Start()
 		case 0:
 		{
 
-			transporter.sck   = &transport_socket;
-			transporter.getfn = transport_getdatanb;
-			transporter.state = 0;
+//			transporter.sck   = &transport_socket;
+//			transporter.getfn = transport_getdatanb;
+//			transporter.state = 0;
 
 			MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
 
@@ -114,29 +114,29 @@ void MQTTClient_Start()
 			}
 		} break;
 
-		case 3:	{
-			// Wait for CONNACK response from the mqtt broker
-			while(true) {
-				// Wait until the transfer is done.
-				if((result = MQTTPacket_readnb(mqttDataBuffer, sizeof(mqttDataBuffer), &transporter)) == CONNACK){
-					// Check if the connection was accepted.
-					unsigned char sessionPresent, connack_rc;
-					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttDataBuffer, sizeof(mqttDataBuffer)) != 1) || (connack_rc != 0)){
-						// Start over.
-						internalState = 0;
-						break;
-					}else{
-						// To the next state.
-						internalState++;
-						break;
-					}
-				} else if (result == -1) {
-					// Start over.
-					internalState = 0;
-					break;
-				}
-			}
-		} break;
+//		case 3:	{
+//			// Wait for CONNACK response from the mqtt broker
+//			while(true) {
+//				// Wait until the transfer is done.
+//				if((result = MQTTPacket_readnb(mqttDataBuffer, sizeof(mqttDataBuffer), &transporter)) == CONNACK){
+//					// Check if the connection was accepted.
+//					unsigned char sessionPresent, connack_rc;
+//					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttDataBuffer, sizeof(mqttDataBuffer)) != 1) || (connack_rc != 0)){
+//						// Start over.
+//						internalState = 0;
+//						break;
+//					}else{
+//						// To the next state.
+//						internalState++;
+//						break;
+//					}
+//				} else if (result == -1) {
+//					// Start over.
+//					internalState = 0;
+//					break;
+//				}
+//			}
+//		} break;
 
 		case 1:	{
 			// Populate the publish message.

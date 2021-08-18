@@ -32,7 +32,7 @@ int RingBuffer_isDataToRead(void);
 void RingBuffer_Clear (void);
 int RingBuffer_SeeContent();
 int RingBuffer_WaitForGivenResponse (char *string);
-int RingBuffer_Receive (char *string, uint8_t numberofchars, char *buffertosave, int *result);
+//int RingBuffer_Receive (char *string, uint8_t numberofchars, char *buffertosave, int *result);
 void UART_IRQHandler ();
 
 

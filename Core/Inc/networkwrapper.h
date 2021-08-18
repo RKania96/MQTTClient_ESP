@@ -16,6 +16,6 @@
 #endif
 
 int NetworkSend(unsigned char *pMqttData, unsigned int dataLength);
-int NetworkRecv(unsigned char *pMqttData, unsigned int maxBytes);
+//int NetworkRecv(unsigned char *pMqttData, unsigned int maxBytes);
 
 #endif

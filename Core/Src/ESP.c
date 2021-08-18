@@ -30,11 +30,11 @@
 #define ESP_RESP_IPD			"+IPD,"
 
 #define ESP_OK		1
-#define ESP_ERROR	0
+#define ESP_ERROR	-1
 
 int ESP_WaitResult(int result)
 {
-	if( result < 0 )  { return ESP_ERROR; }
+	if( result < 0 )  { return 0; }
 	if( result == 1 ) { return ESP_OK; }
 }
 
@@ -111,12 +111,12 @@ int ESP_Send(unsigned char *data, const uint8_t dataLength)
 	return ESP_OK;
 }
 
-int ESP_Receive(const char * const data, const uint8_t dataLength)
-{
-	int result = 0;
-
-	// Receive the available data.
-	while (!(RingBuffer_Receive(ESP_RESP_IPD, dataLength, data, &result)));
-
-	return result;
-}
+//int ESP_Receive(const char * const data, const uint8_t dataLength)
+//{
+//	int result = 0;
+//
+//	// Receive the available data.
+//	while (!(RingBuffer_Receive(ESP_RESP_IPD, dataLength, data, &result)));
+//
+//	return result;
+//}

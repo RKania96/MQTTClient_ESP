@@ -316,21 +316,21 @@ again:
 	goto begin;
 }
 
-/**
-  * ISR for the UART
-  *
-*/
-int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
-{
-	while(RingBuffer_WaitForGivenResponse(string) != 1); // tu bym dał w normalnej postaci w ESP.c (wyżej, żeby timeout sprawdzać)
-	for (int indx=0; indx<numberofchars; indx++)	// to wszystko to chujnia bo tu zawsze po +IPD, jest tylko 4:
-	{
-		while (!(RingBuffer_isDataToRead()));
-		buffertosave[indx] = RingBuffer_Read();
-		*result = indx+1;
-	}
-	return true;
-}
+///**
+//  * ISR for the UART
+//  *
+//*/
+//int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
+//{
+//	while(RingBuffer_WaitForGivenResponse(string) != 1);
+//	for (int indx=0; indx<numberofchars; indx++)
+//	{
+//		while (!(RingBuffer_isDataToRead()));
+//		buffertosave[indx] = RingBuffer_Read();
+//		*result = indx+1;
+//	}
+//	return true;
+//}
 
 /**
   * ISR for the UART
