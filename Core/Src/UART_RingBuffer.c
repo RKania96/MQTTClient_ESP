@@ -14,8 +14,6 @@
 #define E_ERROR -1
 #define E_NOK   0
 
-//#define INCREMENT_TAIL(x) ((unsigned int)(x->tail + 1) % UART_BUFFER_SIZE)
-
 /* definition of used UART  */
 UART_HandleTypeDef huart1;
 #define UART huart1
@@ -30,7 +28,7 @@ ring_buffer *pTX_Buffer;
 
 /* Functions declaration  */
 
-bool RingBuffer_PutChar(unsigned char c, ring_buffer *buffer);
+void RingBuffer_PutChar(unsigned char c, ring_buffer *buffer);
 
 /**
   * USART1 Initialization Function
@@ -73,20 +71,15 @@ void Init_RingBuffer(void)
   * Put char to buffer
   *
 */
-bool RingBuffer_PutChar(unsigned char c, ring_buffer *rbuf)
+void RingBuffer_PutChar(unsigned char c, ring_buffer *rbuf)
 {
-	bool result = E_ERROR;
 	int i = (unsigned int)(rbuf->head + 1) % UART_BUFFER_SIZE;	// increment head and do modulo if is overflow
 
 	if(i != rbuf->tail)
 	{
 		rbuf->buffer[rbuf->head] = c;
 		rbuf->head = i;
-
-		result =  E_OK;
     }
-
-	return result;
 }
 
 /**
@@ -112,10 +105,8 @@ int RingBuffer_Read(void)
   * Write data in the TX_Buffer and increment head
   *
 */
-bool RingBuffer_Write(int c)
+void RingBuffer_Write(int c)
 {
-	bool result = E_ERROR;
-
 	if (c>=0)
 	{
 		int i = (pTX_Buffer->head + 1) % UART_BUFFER_SIZE;
@@ -129,11 +120,7 @@ bool RingBuffer_Write(int c)
 		pTX_Buffer->head = i;
 
 		__HAL_UART_ENABLE_IT(&UART, UART_IT_TXE); // Enable UART transmission interrupt
-
-		result = E_OK;
 	}
-
-	return result;
 }
 
 /**
@@ -165,8 +152,7 @@ void RingBuffer_WriteLenghtString(const unsigned char *s, int dataLength)
 */
 int RingBuffer_isDataToRead(void)
 {
-	int rc;
-	if(rc=GetTime_timeoutIsExpired()) { return -1; }
+	if(GetTime_timeoutIsExpired()) { return E_ERROR; }
 	return (uint16_t)(UART_BUFFER_SIZE + pRX_Buffer->head - pRX_Buffer->tail) % UART_BUFFER_SIZE;
 }
 
@@ -205,83 +191,45 @@ int RingBuffer_SeeContent()
 int RingBuffer_WaitForGivenResponse (char *str)
 {
 
-	int str_idx = 0;
-	int len = strlen(str);
-	int rc;
+	int str_idx, len, rc;
 
-begin:
-	str_idx = 0;
+begin_loop:
 	len = strlen(str);
-
 	GetTime_timeoutBegin();
 
-again:
-	while(!(rc=RingBuffer_isDataToRead()))
-	{
-		//wait for incoming data
-		if(rc == E_ERROR) {return E_ERROR; }
-	}
+again_loop:
+	str_idx = 0;
+
+	while(!(rc=RingBuffer_isDataToRead())) { if(rc == E_ERROR) {return E_ERROR; } }	//wait for incoming data
 
 	while(1)
 	{
 		rc = RingBuffer_SeeContent();
 
 		if(rc == E_ERROR) {return E_ERROR; }
-
-		if(rc != str[str_idx])
-		{
-			pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE;
-		}
-		else {break;}
+		else if(rc != str[str_idx]) { pRX_Buffer->tail = (unsigned int)(pRX_Buffer->tail + 1) % UART_BUFFER_SIZE; }
+		else { break; }
 	}
 
 	while(1)
 	{
 		rc = RingBuffer_SeeContent();
 
-		if(rc == E_ERROR) {return E_ERROR; }
-
-		if(rc == str[str_idx])
+		if(rc == E_ERROR) { return E_ERROR; }
+		else if(rc == str[str_idx])
 		{
 			str_idx++;
 			RingBuffer_Read();
 			if (str_idx == len) return 1;
-			while (!(rc=RingBuffer_isDataToRead()))
-			{
-				if(rc == E_ERROR) {return E_ERROR; }// wait for incoming data
-			}
+			while (!(rc=RingBuffer_isDataToRead())) { if(rc == E_ERROR) {return E_ERROR; } }	// wait for incoming data
 		}
-		else {break;}
-
-
+		else { break; }
 	}
 
-	if (str_idx != len)
-	{
-		str_idx = 0;
-		goto again; //RingBuffer_WaitForGivenResponse(str); // recursive search
-	}
-
-	if (str_idx == len) { return E_OK; }
-
-	goto begin;
+	if (str_idx != len) { goto again_loop; }
+	else if (str_idx == len) { return E_OK; }
+	else { goto begin_loop; }
 }
-
-///**
-//  * ISR for the UART
-//  *
-//*/
-//int RingBuffer_Receive(char *string, uint8_t numberofchars, char *buffertosave, int *result)
-//{
-//	while(RingBuffer_WaitForGivenResponse(string) != 1);
-//	for (int indx=0; indx<numberofchars; indx++)
-//	{
-//		while (!(RingBuffer_isDataToRead()));
-//		buffertosave[indx] = RingBuffer_Read();
-//		*result = indx+1;
-//	}
-//	return true;
-//}
 
 /**
   * ISR for the UART

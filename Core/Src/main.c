@@ -72,8 +72,8 @@ MQTTdata mqttData = { 123, 1000, 54.223 };
 void MQTTClient_Start()
 {
 	unsigned char mqttDataBuffer[128];
-	int internalState = 0;
-//	MQTTTransport transporter;
+	static int internalState = 0;
+	static int reconnect_cnt = 0;
 	int result;
 	int length;
 
@@ -86,11 +86,6 @@ void MQTTClient_Start()
 		switch(internalState){
 		case 0:
 		{
-
-//			transporter.sck   = &transport_socket;
-//			transporter.getfn = transport_getdatanb;
-//			transporter.state = 0;
-
 			MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
 
 			connectData.MQTTVersion 	  = 3;
@@ -102,41 +97,9 @@ void MQTTClient_Start()
 			length = MQTTSerialize_connect(mqttDataBuffer, sizeof(mqttDataBuffer), &connectData);
 
 			// Send CONNECT to the mqtt broker
-			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length)
-			{
-				// To the next state.
-				internalState++;
-			}
-			else
-			{
-				// Start over.
-				internalState = 0;
-			}
+			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length) { internalState++; }
+			else { internalState = 0; }
 		} break;
-
-//		case 3:	{
-//			// Wait for CONNACK response from the mqtt broker
-//			while(true) {
-//				// Wait until the transfer is done.
-//				if((result = MQTTPacket_readnb(mqttDataBuffer, sizeof(mqttDataBuffer), &transporter)) == CONNACK){
-//					// Check if the connection was accepted.
-//					unsigned char sessionPresent, connack_rc;
-//					if ((MQTTDeserialize_connack(&sessionPresent, &connack_rc, mqttDataBuffer, sizeof(mqttDataBuffer)) != 1) || (connack_rc != 0)){
-//						// Start over.
-//						internalState = 0;
-//						break;
-//					}else{
-//						// To the next state.
-//						internalState++;
-//						break;
-//					}
-//				} else if (result == -1) {
-//					// Start over.
-//					internalState = 0;
-//					break;
-//				}
-//			}
-//		} break;
 
 		case 1:	{
 			// Populate the publish message.
@@ -147,17 +110,16 @@ void MQTTClient_Start()
 			length = MQTTSerialize_publish(mqttDataBuffer, sizeof(mqttDataBuffer), 0, 0, 0, 0, topicString, payload, (length = sprintf(payload, "%d", mqttData.value1)));
 
 			// Send PUBLISH to the mqtt broker.
-			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length){
-
-				// Wait 5s.
-				HAL_Delay(5000);
-			} else {
-				// Start over.
-				internalState = 4;
+			if((result = transport_sendPacketBuffer(transport_socket, mqttDataBuffer, length)) == length) { HAL_Delay(5000); } // if OK, Wait 5s.
+			else
+			{
+				if(reconnect_cnt++ < 4) { internalState = 0; }
+				else { internalState = 2; }
+				HAL_Delay(15000);
 			}
 		} break;
-		case 4: {
-
+		case 2: {
+			// Communication Error
 		} break;
 		default:
 			internalState = 0;
